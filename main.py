@@ -1,74 +1,94 @@
 import os
-import glob
-from threading import Thread
-from flask import Flask
+import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import yt_dlp
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from yt_dlp import YoutubeDL
 
-app_web = Flask('')
+# إعداد السجلات لتتبع أي مشاكل
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-@app_web.route('/')
-def home():
-    return "Bot is running perfectly!"
+# توكن البوت (يمكنك استخدامه كمتغير بيئي أو وضع التوكن الخاص بك)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q")
 
-def run_web():
-    app_web.run(host='0.0.0.0', port=8080)
-
-# ضع التوكن الخاص بك هنا
-TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
-
+# دالة الترحيب /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('أهلاً بك! أرسل لي رابط فيديو من يوتيوب أو إنستغرام لتحميله.')
+    await update.message.reply_text(
+        "أهلاً بك! 👋\n\nأرسل لي رابط فيديو أو ريلز (Reel) من **إنستغرام** وسأقوم بتحميله لك فوراً."
+    )
 
-async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# دالة تحميل محتوى إنستغرام
+async def handle_instagram_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
-    if not url.startswith(('http://', 'https://')):
+
+    # التحقق من أن الرابط يخص منصة إنستغرام
+    if not ("instagram.com" in url or "instagr.am" in url):
+        await update.message.reply_text("❌ الرجاء إرسال رابط صحيح من منصة إنستغرام.")
         return
 
-    msg = await update.message.reply_text('⏳ جاري جلب الفيديو والتحميل، يرجى الانتظار...')
-    
-    # اسم ملف مؤقت فريد لتجنب التضارب
-    output_template = f"video_{update.message.message_id}.%(ext)s"
+    status_msg = await update.message.reply_text("جاري جلب الفيديو من إنستغرام... انتظر لحظة ⏳")
 
+    # إنشاء مجلد لتنزيلات الفيديو المؤقتة
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+
+    # إعدادات yt-dlp المتوافقة خصيصاً مع إنستغرام
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': output_template,
-        'max_filesize': 50 * 1024 * 1024,  # حد أقصى 50 ميجابايت لتلجرام
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        # محاكاة متصفح حقيقي لتجاوز الحظر على Render
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'referer': 'https://www.google.com/',
+        # إضافة رؤوس محاكاة المتصفح لمنع التظليل/الحظر
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        }
     }
 
+    downloaded_file = None
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        # البحث عن الملف الذي تم تحميله
-        downloaded_files = glob.glob(f"video_{update.message.message_id}.*")
-        
-        if downloaded_files:
-            file_path = downloaded_files[0]
-            with open(file_path, 'rb') as video:
-                await update.message.reply_video(video=video, caption="تم التحميل بنجاح ✨")
-            os.remove(file_path)
-            await msg.delete()
+        # عملية استخراج وتحميل الفيديو
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            downloaded_file = ydl.prepare_filename(info)
+
+        # التحقق من وجود الملف المحمل وإرساله
+        if downloaded_file and os.path.exists(downloaded_file):
+            with open(downloaded_file, 'rb') as video:
+                await update.message.reply_video(
+                    video=video,
+                    caption="تم تحميل الفيديو بنجاح! 📸🎬"
+                )
+            
+            # حذف رسالة الانتظار
+            await status_msg.delete()
         else:
-            await msg.edit_text('❌ تعذر العثور على الملف بعد التحميل.')
+            await status_msg.edit_text("❌ تعذر العثور على ملف الفيديو للتحميل.")
 
     except Exception as e:
-        error_text = str(e)
-        if "File is larger than" in error_text or "max_filesize" in error_text:
-            await msg.edit_text('⚠️ حجم الفيديو كبير جداً (يتجاوز 50 ميجابايت)، لا يمكن إرساله عبر تلجرام.')
-        else:
-            await msg.edit_text('❌ حدث خطأ أثناء التحميل. قد يكون الرابط خاصاً أو محظوراً من السيرفر.')
+        logging.error(f"حدث خطأ أثناء تحميل إنستغرام: {e}")
+        await status_msg.edit_text(
+            "❌ حدث خطأ أثناء التحميل.\n"
+            "• تأكد أن الحساب **عام (Public)** وليس خاصاً (Private).\n"
+            "• تأكد من صحة الرابط."
+        )
 
+    finally:
+        # التنظيف الذاتي: حذف الفيديو بعد الإرسال لتوفير مساحة السيرفر
+        if downloaded_file and os.path.exists(downloaded_file):
+            try:
+                os.remove(downloaded_file)
+            except Exception:
+                pass
+
+# التشغيل الرئيسي
 if __name__ == '__main__':
-    Thread(target=run_web).start()
-    
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_instagram_media))
+
+    print("البوت يعمل بنجاح الآن...")
     app.run_polling()
