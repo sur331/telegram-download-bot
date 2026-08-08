@@ -1,34 +1,35 @@
 import os
 import threading
+import requests
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from yt_dlp import YoutubeDL
 
 # -------------------------------------------------------------
-# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7
+# 1. خادم الويب لإبقاء منصة الاستضافة شغالة 24/7
 # -------------------------------------------------------------
 app_web = Flask(__name__)
 
 @app_web.route('/')
 def home():
-    return "Bot is active!"
+    return "Bot is running smoothly!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app_web.run(host='0.0.0.0', port=port)
 
 # -------------------------------------------------------------
-# 2. التوكن الخاص بالبوت
+# 2. توكن البوت الخاص بك
 # -------------------------------------------------------------
-TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
+TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv7919kSR4i4Q"
 
 # -------------------------------------------------------------
-# 3. أوامر ودوال التحميل
+# 3. أوامر ودوال البوت
 # -------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 أهلاً بك!\nأرسل لي رابط فيديو من يوتيوب وسأقوم بتحميله لك."
+        "👋 أهلاً بك!\n"
+        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله وإرساله لك فوراً."
     )
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -38,46 +39,52 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ الرجاء إرسال رابط صحيح يبدأ بـ http أو https.")
         return
 
-    status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
+    status_msg = await update.message.reply_text("⏳ جاري جلب الفيديو وتجاوز الحظر، يرجى الانتظار...")
     
-    # خيارات متقدمة لتجاوز حظر السيرفرات (Bypass Cloud IPs)
-        ydl_opts = {
-        'format': 'b[height<=480]/b[height<=360]/bestvideo+bestaudio/best',
-        'outtmpl': 'downloaded_video.%(ext)s',
-        'cookiefile': 'cookies.txt',  # 👈 هذا السطر الأهم لتجاوز الحظر
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'no_warnings': True,
-        'quiet': True,
-        'retries': 10,
-        'fragment_retries': 10,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        
-        
-        }
+    # استخدام Cobalt API لتجاوز حظر IP يوتيوب
+    api_url = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "url": url,
+        "videoQuality": "480"  # جودة ممتازة وسريعة في التحميل ولن تتجاوز مساحة تليجرام
     }
 
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-        
-        await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
-        with open(filename, 'rb') as video:
-            await update.message.reply_video(video)
+        response = requests.post(api_url, json=payload, headers=headers)
+        data = response.json()
+
+        if data.get("status") in ["stream", "redirect"]:
+            video_url = data.get("url")
             
-        if os.path.exists(filename):
-            os.remove(filename)
-        await status_msg.delete()
-        
+            # تحميل ملف الفيديو مؤقتاً
+            video_data = requests.get(video_url, stream=True)
+            filename = "downloaded_video.mp4"
+            
+            with open(filename, 'wb') as f:
+                for chunk in video_data.iter_content(chunk_size=1024*1024):
+                    if chunk:
+                        f.write(chunk)
+
+            await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
+            
+            with open(filename, 'rb') as video:
+                await update.message.reply_video(video)
+                
+            if os.path.exists(filename):
+                os.remove(filename)
+                
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text("❌ تعذر جلب الفيديو، قد يكون المقطع خاصاً أو يتطلب تسجيل دخول.")
+
     except Exception as e:
-        print(f"Error Details: {e}")  # طباعة الخطأ في logs
-        await status_msg.edit_text(f"❌ تعذر التحميل بسبب حظر السيرفر من يوتيوب.\nالخطأ البرمجي: {str(e)[:100]}")
+        await status_msg.edit_text(f"❌ حدث خطأ أثناء التحميل: {str(e)[:100]}")
 
 # -------------------------------------------------------------
-# 4. تشغيل البوت
+# 4. تشغيل الخادم والبوت
 # -------------------------------------------------------------
 if __name__ == '__main__':
     threading.Thread(target=run_flask, daemon=True).start()
