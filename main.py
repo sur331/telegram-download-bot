@@ -21,7 +21,7 @@ def run_flask():
 # -------------------------------------------------------------
 # 2. توكن البوت الخاص بك
 # -------------------------------------------------------------
-TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
+TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv7919kSR4i4Q"
 
 # -------------------------------------------------------------
 # 3. أوامر ودوال البوت
@@ -42,9 +42,9 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
     
-    # خيارات yt-dlp المحسّنة (تضمن ضبط الحجم ليكون أقل من 45MB)
+    # خيارات yt-dlp الذكية (تحميل بجودة 480p/360p لتفادي مشاكل الحجم ومرورها بنجاح)
     ydl_opts = {
-        'format': 'best[filesize<45M]/worst[filesize<45M]/worst',
+        'format': 'b[height<=480]/b[height<=360]/b',
         'outtmpl': 'downloaded_video.%(ext)s',
         'nocheckcertificate': True,
         'ignoreerrors': True,
@@ -74,7 +74,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete()
         
     except Exception as e:
-        await status_msg.edit_text("❌ حدث خطأ أثناء التحميل. قد يكون الرابط غير مدعوم أو تعذر تقليل حجم الفيديو.")
+        await status_msg.edit_text("❌ حدث خطأ أثناء التحميل. تأكد من صحة الرابط وأن الفيديو ليس خاصاً.")
 
 # -------------------------------------------------------------
 # 4. تشغيل الخادم والبوت
