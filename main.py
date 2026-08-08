@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from yt_dlp import YoutubeDL
 
 # -------------------------------------------------------------
-# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7
+# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7 على منصة الاستضافة
 # -------------------------------------------------------------
 app_web = Flask(__name__)
 
@@ -19,7 +19,7 @@ def run_flask():
     app_web.run(host='0.0.0.0', port=port)
 
 # -------------------------------------------------------------
-# 2. التوكن الخاص بك
+# 2. التوكن الخاص بالبوت
 # -------------------------------------------------------------
 TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
 
@@ -29,12 +29,13 @@ TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 أهلاً بك!\n"
-        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله لك فوراً."
+        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله لك فوراً بحجم خفيف ومناسب."
     )
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     
+    # التأكد من صحة الرابط
     if not url.startswith("http://") and not url.startswith("https://"):
         await update.message.reply_text("❌ الرجاء إرسال رابط صحيح يبدأ بـ http أو https.")
         return
@@ -48,9 +49,9 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    # خيارات مرنة جداً تجبر yt-dlp على التحميل بأي صيغة خفيفة متوفرة
+    # خيارات تضمن اختيار جودة منخفضة (360p/240p) ليبقى الحجم أقل من 50MB
     ydl_opts = {
-        'format': 'worst[ext=mp4]/best[ext=mp4]/worst/best',
+        'format': 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst',
         'outtmpl': filename,
         'nocheckcertificate': True,
         'ignoreerrors': False,
@@ -71,7 +72,15 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         
+        # التأكد من وجود الملف وأن حجمه لا يتجاوز حد تليجرام (50 ميجابايت)
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            file_size_mb = os.path.getsize(filename) / (1024 * 1024)
+            
+            if file_size_mb > 49:
+                await status_msg.edit_text("❌ اعتذار: حجم الملف بعد الضغط ما زال يتجاوز 50 ميجابايت (الحد الأقصى لتليجرام).")
+                os.remove(filename)
+                return
+
             await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
             with open(filename, 'rb') as video:
                 await update.message.reply_video(video)
