@@ -1,12 +1,12 @@
 import os
 import threading
+import requests
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from pytubefix import YouTube
 
 # -------------------------------------------------------------
-# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7
+# 1. خادم الويب لإبقاء الخدمة شغالة 24/7
 # -------------------------------------------------------------
 app_web = Flask(__name__)
 
@@ -19,17 +19,17 @@ def run_flask():
     app_web.run(host='0.0.0.0', port=port)
 
 # -------------------------------------------------------------
-# 2. التوكن الخاص بك
+# 2. التوكن الخاص بالبوت
 # -------------------------------------------------------------
 TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv7919kSR4i4Q"
 
 # -------------------------------------------------------------
-# 3. أوامر ودوال البوت
+# 3. أوامر ودوال البوت (تجاوز حظر Render عبر الوسيط)
 # -------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 أهلاً بك!\n"
-        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله لك فوراً."
+        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله وإرساله لك فوراً."
     )
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -39,40 +39,58 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ الرجاء إرسال رابط صحيح يبدأ بـ http أو https.")
         return
 
-    status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
-    
-    try:
-        # استخدام pytubefix المحسنة لتجاوز قيود يوتيوب والبوتات (Android client)
-        yt = YouTube(url, client='ANDROID')
-        
-        # اختيار أقل جودة مدمجة (360p) لضمان أن الحجم صغير جداً ومناسب لتليجرام
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').first()
-        
-        if not stream:
-            stream = yt.streams.filter(file_extension='mp4').first()
+    status_msg = await update.message.reply_text("⏳ جاري جلب الفيديو وتجاوز الحظر، يرجى الانتظار...")
+    filename = "downloaded_video.mp4"
 
-        filename = stream.download(filename="downloaded_video.mp4")
-        
+    try:
+        # استخدام خدمة وسيطة لتجاوز حظر يوتيوب لـ Render
+        download_api_url = f"https://api.vkrdown.com/v4/youtube?url={url}"
+        response = requests.get(download_api_url, timeout=15).json()
+
+        video_download_url = None
+
+        # البحث عن أسرع جودة خفيفة (360p أو 480p) تناسب تليجرام
+        if "data" in response and "downloads" in response["data"]:
+            for item in response["data"]["downloads"]:
+                if item.get("extension") == "mp4" and item.get("url"):
+                    video_download_url = item["url"]
+                    # تفضيل الجودة المتوسطة لخفة الحجم
+                    if "360" in item.get("quality", "") or "480" in item.get("quality", ""):
+                        break
+
+        if not video_download_url and "data" in response and "url" in response["data"]:
+            video_download_url = response["data"]["url"]
+
+        if not video_download_url:
+            await status_msg.edit_text("❌ تعذر استخراج رابط الفيديو، تأكد من صحة الرابط.")
+            return
+
+        # تنزيل الملف مؤقتاً على السيرفر
+        video_res = requests.get(video_download_url, stream=True, timeout=60)
+        with open(filename, 'wb') as f:
+            for chunk in video_res.iter_content(chunk_size=1024*1024):
+                if chunk:
+                    f.write(chunk)
+
         file_size_mb = os.path.getsize(filename) / (1024 * 1024)
         if file_size_mb > 49:
-            await status_msg.edit_text("❌ الفيديو مدته طويلة جداً وحجمه يتجاوز 50 ميجابايت (حد تليجرام المسموح).")
+            await status_msg.edit_text("❌ الفيديو مدته طويلة وحجمه يتجاوز الحد المسموح في تليجرام (50MB).")
             os.remove(filename)
             return
 
         await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
         with open(filename, 'rb') as video:
             await update.message.reply_video(video)
-        
+            
         if os.path.exists(filename):
             os.remove(filename)
         await status_msg.delete()
 
     except Exception as e:
-        error_details = str(e)[:150]
-        await status_msg.edit_text(f"❌ تعذر التحميل:\n`{error_details}`", parse_mode="Markdown")
-        if os.path.exists("downloaded_video.mp4"):
+        await status_msg.edit_text("❌ حدث خطأ أثناء التحميل، يرجى المحاولة لاحقاً.")
+        if os.path.exists(filename):
             try:
-                os.remove("downloaded_video.mp4")
+                os.remove(filename)
             except Exception:
                 pass
 
@@ -84,5 +102,5 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
-    print("Bot started...")
+    print("Bot is active...")
     app.run_polling()
