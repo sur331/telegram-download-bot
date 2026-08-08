@@ -43,28 +43,27 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     filename = "downloaded_video.mp4"
     if os.path.exists(filename):
-        os.remove(filename)
+        try:
+            os.remove(filename)
+        except Exception:
+            pass
 
-    # خيارات متطورة لتجاوز حظر يوتيوب المباشر على السيرفرات السحابية
+    # خيارات مرنة جداً تجبر yt-dlp على التحميل بأي صيغة خفيفة متوفرة
     ydl_opts = {
-        'format': 'b[height<=360]/b[height<=480]/b/best',
+        'format': 'worst[ext=mp4]/best[ext=mp4]/worst/best',
         'outtmpl': filename,
         'nocheckcertificate': True,
-        'ignoreerrors': True,
+        'ignoreerrors': False,
         'no_warnings': True,
         'quiet': True,
-        'retries': 10,
-        'fragment_retries': 10,
-        # التمويه التام كعميل iOS/Android لتجاوز اختبار البوت
+        'retries': 5,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'mweb', 'android'],
-                'skip': ['hls', 'dash']
+                'player_client': ['android', 'ios', 'mweb']
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-            'Accept-Language': 'en-US,en;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         }
     }
 
@@ -76,15 +75,20 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
             with open(filename, 'rb') as video:
                 await update.message.reply_video(video)
+            
             os.remove(filename)
             await status_msg.delete()
         else:
-            await status_msg.edit_text("❌ تعذر تحميل الفيديو. قد يكون الحجم كبيراً جداً أو المقطع خاص.")
+            await status_msg.edit_text("❌ تعذر إنشاء ملف الفيديو، تأكد من صحة الرابط.")
             
     except Exception as e:
-        await status_msg.edit_text("❌ حدث خطأ غير متوقع أثناء التحميل.")
+        error_details = str(e)[:150]
+        await status_msg.edit_text(f"❌ حدث خطأ أثناء التحميل:\n`{error_details}`", parse_mode="Markdown")
         if os.path.exists(filename):
-            os.remove(filename)
+            try:
+                os.remove(filename)
+            except Exception:
+                pass
 
 # -------------------------------------------------------------
 # 4. تشغيل الخادم والبوت
