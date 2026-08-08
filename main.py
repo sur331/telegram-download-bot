@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from yt_dlp import YoutubeDL
 
 # -------------------------------------------------------------
-# 1. إنشاء خادم ويب خفيف لإبقاء منصة الاستضافة شغالها 24/7
+# 1. إنشاء خادم ويب خفيف لإبقاء منصة الاستضافة شغالة 24/7
 # -------------------------------------------------------------
 app_web = Flask(__name__)
 
@@ -42,10 +42,9 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
     
-    # خيارات yt-dlp المتطورة لتجاوز الحظر والأخطاء
+    # خيارات yt-dlp المحسّنة (تضمن ضبط الحجم ليكون أقل من 45MB)
     ydl_opts = {
-        # جلب أفضل جودة بحجم أقل من 50 ميجابايت (حد تليجرام المسموح)
-        'format': 'best[filesize<50M]/bestvideo[filesize<30M]+bestaudio/best',
+        'format': 'best[filesize<45M]/worst[filesize<45M]/worst',
         'outtmpl': 'downloaded_video.%(ext)s',
         'nocheckcertificate': True,
         'ignoreerrors': True,
@@ -53,7 +52,6 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'quiet': True,
         'retries': 10,
         'fragment_retries': 10,
-        # محاكاة متصفح حقيقي لتفادي الحظر القياسي
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -76,7 +74,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete()
         
     except Exception as e:
-        await status_msg.edit_text("❌ حدث خطأ أثناء التحميل. قد يكون حجم الفيديو كبيراً جداً (أكبر من 50 ميجابايت) أو أن الرابط غير مدعوم.")
+        await status_msg.edit_text("❌ حدث خطأ أثناء التحميل. قد يكون الرابط غير مدعوم أو تعذر تقليل حجم الفيديو.")
 
 # -------------------------------------------------------------
 # 4. تشغيل الخادم والبوت
