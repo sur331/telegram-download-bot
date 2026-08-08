@@ -41,25 +41,21 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
     
     # خيارات متقدمة لتجاوز حظر السيرفرات (Bypass Cloud IPs)
-    ydl_opts = {
+        ydl_opts = {
         'format': 'b[height<=480]/b[height<=360]/bestvideo+bestaudio/best',
         'outtmpl': 'downloaded_video.%(ext)s',
+        'cookiefile': 'cookies.txt',  # 👈 هذا السطر الأهم لتجاوز الحظر
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'no_warnings': True,
         'quiet': True,
         'retries': 10,
         'fragment_retries': 10,
-        # التمويه كـ مشغل تلفزيون أو أندرويد لتجاوز حظر IP يوتيوب
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'android', 'ios'],
-                'player_skip': ['webpage', 'configs']
-            }
-        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
+        
+        
         }
     }
 
