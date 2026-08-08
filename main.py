@@ -43,7 +43,7 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
     
     # خيارات yt-dlp الذكية (تحميل بجودة 480p/360p لتفادي مشاكل الحجم ومرورها بنجاح)
-    ydl_opts = {
+        ydl_opts = {
         'format': 'b[height<=480]/b[height<=360]/b',
         'outtmpl': 'downloaded_video.%(ext)s',
         'nocheckcertificate': True,
@@ -52,11 +52,18 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'quiet': True,
         'retries': 10,
         'fragment_retries': 10,
+        # استخدام إعدادات تطبيق الأندرويد لتجاوز حظر السيرفرات
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
+
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
