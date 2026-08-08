@@ -3,10 +3,10 @@ import threading
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from yt_dlp import YoutubeDL
+from pytubefix import YouTube
 
 # -------------------------------------------------------------
-# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7 على منصة الاستضافة
+# 1. خادم الويب للإبقاء على الخدمة شغالة 24/7
 # -------------------------------------------------------------
 app_web = Flask(__name__)
 
@@ -19,9 +19,9 @@ def run_flask():
     app_web.run(host='0.0.0.0', port=port)
 
 # -------------------------------------------------------------
-# 2. التوكن الخاص بالبوت
+# 2. التوكن الخاص بك
 # -------------------------------------------------------------
-TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
+TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv7919kSR4i4Q"
 
 # -------------------------------------------------------------
 # 3. أوامر ودوال البوت
@@ -29,73 +29,50 @@ TOKEN = "8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q"
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 أهلاً بك!\n"
-        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله لك فوراً بحجم خفيف ومناسب."
+        "أرسل لي رابط أي فيديو من يوتيوب وسأقوم بتحميله لك فوراً."
     )
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     
-    # التأكد من صحة الرابط
     if not url.startswith("http://") and not url.startswith("https://"):
         await update.message.reply_text("❌ الرجاء إرسال رابط صحيح يبدأ بـ http أو https.")
         return
 
     status_msg = await update.message.reply_text("⏳ جاري جلب وتحميل الفيديو، يرجى الانتظار...")
     
-    filename = "downloaded_video.mp4"
-    if os.path.exists(filename):
-        try:
-            os.remove(filename)
-        except Exception:
-            pass
-
-    # خيارات تضمن اختيار جودة منخفضة (360p/240p) ليبقى الحجم أقل من 50MB
-    ydl_opts = {
-        'format': 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst',
-        'outtmpl': filename,
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'no_warnings': True,
-        'quiet': True,
-        'retries': 5,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'mweb']
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        }
-    }
-
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        # استخدام pytubefix المحسنة لتجاوز قيود يوتيوب والبوتات (Android client)
+        yt = YouTube(url, client='ANDROID')
         
-        # التأكد من وجود الملف وأن حجمه لا يتجاوز حد تليجرام (50 ميجابايت)
-        if os.path.exists(filename) and os.path.getsize(filename) > 0:
-            file_size_mb = os.path.getsize(filename) / (1024 * 1024)
-            
-            if file_size_mb > 49:
-                await status_msg.edit_text("❌ اعتذار: حجم الملف بعد الضغط ما زال يتجاوز 50 ميجابايت (الحد الأقصى لتليجرام).")
-                os.remove(filename)
-                return
+        # اختيار أقل جودة مدمجة (360p) لضمان أن الحجم صغير جداً ومناسب لتليجرام
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').first()
+        
+        if not stream:
+            stream = yt.streams.filter(file_extension='mp4').first()
 
-            await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
-            with open(filename, 'rb') as video:
-                await update.message.reply_video(video)
-            
+        filename = stream.download(filename="downloaded_video.mp4")
+        
+        file_size_mb = os.path.getsize(filename) / (1024 * 1024)
+        if file_size_mb > 49:
+            await status_msg.edit_text("❌ الفيديو مدته طويلة جداً وحجمه يتجاوز 50 ميجابايت (حد تليجرام المسموح).")
             os.remove(filename)
-            await status_msg.delete()
-        else:
-            await status_msg.edit_text("❌ تعذر إنشاء ملف الفيديو، تأكد من صحة الرابط.")
-            
+            return
+
+        await status_msg.edit_text("⬆️ جاري رفع الفيديو إلى تليجرام...")
+        with open(filename, 'rb') as video:
+            await update.message.reply_video(video)
+        
+        if os.path.exists(filename):
+            os.remove(filename)
+        await status_msg.delete()
+
     except Exception as e:
         error_details = str(e)[:150]
-        await status_msg.edit_text(f"❌ حدث خطأ أثناء التحميل:\n`{error_details}`", parse_mode="Markdown")
-        if os.path.exists(filename):
+        await status_msg.edit_text(f"❌ تعذر التحميل:\n`{error_details}`", parse_mode="Markdown")
+        if os.path.exists("downloaded_video.mp4"):
             try:
-                os.remove(filename)
+                os.remove("downloaded_video.mp4")
             except Exception:
                 pass
 
