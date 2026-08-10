@@ -40,30 +40,29 @@ logging.basicConfig(
 TOKEN = os.environ.get("8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q")
 
 # ===================================================
-# 3. دالة تنزيل الفيديو المحدثة لتجاوز الحظر
+# 3. دالة تنزيل الفيديو المحدثة لتجاوز حظر Render
 # ===================================================
 def download_video(url, output_path):
     ydl_opts = {
-        # جودة ممتازة بدون الحاجة للدمج المعقد
-        'format': 'best[ext=mp4]/best',
+        # صيغة mp4 مباشرة وبأعلى جودة لتجنب الحاجة للدمج المعقد
+        'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
         
-        # تجاوز حظر Render وطلب تسجيل الدخول عبر العملاء المحمولين
+        # ⬇️ أهم الإعدادات لتجاوز حظر السيرفرات وطلب تسجيل الدخول ⬇️
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'mweb'],
-                'skip': ['webpage', 'configs']
+                'player_client': ['android', 'ios', 'web_creator'],
+                'player_skip': ['configs', 'webpage']
             }
         },
         
-        # إعدادات إضافية لتجاوز القيود
+        # خيارات التوافقية ومنع التوقف
         'nocheckcertificate': True,
         'ignoreerrors': False,
-        'logtostderr': False,
         'quiet': True,
         'no_warnings': True,
-        'default_search': 'auto',
-        'source_address': '0.0.0.0'  # استخدام IPv4 لتفادي حظر شبكات IPv6
+        'geo_bypass': True,
+        'source_address': '0.0.0.0' # إجبار استخدام IPv4 بدلاً من IPv6 المحظور
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -91,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file_path = None
     try:
-        # تشغيل دالة التنزيل داخل loop حتى لا يتجمد البوت
+        # تشغيل دالة التنزيل داخل loop بدون إيقاف البوت
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_video, url, download_dir)
 
@@ -105,10 +104,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Error downloading/sending: {e}")
-        await status_msg.edit_text("حدث خطأ أثناء تحميل الفيديو. تأكد من صحة الرابط أو حاول مرة أخرى لاحقاً.")
+        await status_msg.edit_text("حدث خطأ أثناء تحميل الفيديو. تأكد من صحة الرابط وأن حجمه مناسب للتلغرام.")
 
     finally:
-        # تنظيف الملفات المؤقتة لتوفير المساحة في Render
+        # تنظيف الملفات بعد إرسالها لتوفير المساحة في Render
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
