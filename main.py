@@ -1,61 +1,123 @@
+import logging
 import os
+import asyncio
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 import yt_dlp
-import telebot
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-# ضع توكن البوت الخاص بك من BotFather بين التنصيص
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+# ===================================================
+# 1. السيرفر الوهمي لتجاوز مشكلة Port في Render
+# ===================================================
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is active and running!")
 
-bot = telebot.TeleBot(8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q)
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "أهلاً بك! أرسل لي رابط فيديو من يوتيوب لتحميله مباشرة.")
+Thread(target=run_dummy_server, daemon=True).start()
 
-@bot.message_handler(func=lambda message: True)
-def process_video_link(message):
-    url = message.text.strip()
-    
-    # التحقق المبدئي من الرابط
-    if not (url.startswith("http://") or url.startswith("https://")):
-        bot.reply_to(message, "الرابط غير صالح! يرجى إرسال رابط يوتيوب صحيح.")
-        return
+# ===================================================
+# 2. إعدادات السجلات والتوكين
+# ===================================================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-    output_path = "Downloads"
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
+TOKEN = os.environ.get("8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q")
 
-    status_msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو...")
-
+# ===================================================
+# 3. دالة تنزيل الفيديو باستخدام yt-dlp
+# ===================================================
+def download_video(url, output_path):
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
         'merge_output_format': 'mp4',
-        'quiet': True,
+        
+        # تجاوز حظر السيرفرات والتأكد من عدم طلب تسجيل الدخول
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios']
+            }
+        },
         'noplaylist': True,
-        'ignoreerrors': True,
+        'quiet': True,
     }
 
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        return filename
+
+# ===================================================
+# 4. معالجات الأوامر والرسائل
+# ===================================================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("أهلاً بك! أرسل لي رابط فيديو من يوتيوب وسأقوم بتحميله وإرساله لك مباشرة.")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    
+    if not (url.startswith("http://") or url.startswith("https://")):
+        await update.message.reply_text("الرجاء إرسال رابط صحيح.")
+        return
+
+    status_msg = await update.message.reply_text("⏳ جاري جلب الفيديو والتحميل...")
+
+    download_dir = "downloads"
+    os.makedirs(download_dir, exist_ok=True)
+
+    file_path = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            # ضمان امتداد mp4 بعد الدمج
-            filename = os.path.splitext(filename)[0] + ".mp4"
+        # تشغيل دالة التنزيل داخل loop بدون إيقاف البوت
+        loop = asyncio.get_event_loop()
+        file_path = await loop.run_in_executor(None, download_video, url, download_dir)
 
-        bot.edit_message_text("📤 جاري إرسال الفيديو إلى تليجرام...", chat_id=status_msg.chat.id, message_id=status_msg.message_id)
-        
-        with open(filename, 'rb') as video_file:
-            bot.send_video(message.chat.id, video_file)
+        await status_msg.edit_text("⬆️ جاري إرسال الفيديو إلى التلغرام...")
 
-        # تنظيف الملفات السيرفرية بعد الإرسال
-        if os.path.exists(filename):
-            os.remove(filename)
-            
-        bot.delete_message(chat_id=status_msg.chat.id, message_id=status_msg.message_id)
+        # إرسال الفيديو للمستخدم
+        with open(file_path, 'rb') as video_file:
+            await update.message.reply_video(video=video_file)
+
+        await status_msg.delete()
 
     except Exception as e:
-        bot.edit_message_text(f"❌ حدث خطأ أثناء التحميل: {str(e)}", chat_id=status_msg.chat.id, message_id=status_msg.message_id)
+        logging.error(f"Error downloading/sending: {e}")
+        await status_msg.edit_text("حدث خطأ أثناء تحميل الفيديو. تأكد من أن الرابط يعمل وأن حجم الفيديو غير ضخم جداً.")
 
+    finally:
+        # تنظيف الملفات بعد إرسالها لتوفير المساحة في Render
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+# ===================================================
+# 5. تشغيل البوت
+# ===================================================
 if __name__ == '__main__':
-    print("🤖 البوت يعمل الآن...")
-    bot.infinity_polling()
+    if not TOKEN:
+        raise ValueError("لم يتم العثور على BOT_TOKEN في متغيرات البيئة!")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("البوت يعمل الآن...")
+    app.run_polling()
