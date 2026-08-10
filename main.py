@@ -40,22 +40,30 @@ logging.basicConfig(
 TOKEN = os.environ.get("8859717725:AAFt9FWRA5kkmzZSNsUjQ1qv79l9kSR4i4Q")
 
 # ===================================================
-# 3. دالة تنزيل الفيديو باستخدام yt-dlp
+# 3. دالة تنزيل الفيديو المحدثة لتجاوز الحظر
 # ===================================================
 def download_video(url, output_path):
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        # جودة ممتازة بدون الحاجة للدمج المعقد
+        'format': 'best[ext=mp4]/best',
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-        'merge_output_format': 'mp4',
         
-        # تجاوز حظر السيرفرات والتأكد من عدم طلب تسجيل الدخول
+        # تجاوز حظر Render وطلب تسجيل الدخول عبر العملاء المحمولين
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['ios', 'mweb'],
+                'skip': ['webpage', 'configs']
             }
         },
-        'noplaylist': True,
+        
+        # إعدادات إضافية لتجاوز القيود
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
         'quiet': True,
+        'no_warnings': True,
+        'default_search': 'auto',
+        'source_address': '0.0.0.0'  # استخدام IPv4 لتفادي حظر شبكات IPv6
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -83,7 +91,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file_path = None
     try:
-        # تشغيل دالة التنزيل داخل loop بدون إيقاف البوت
+        # تشغيل دالة التنزيل داخل loop حتى لا يتجمد البوت
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_video, url, download_dir)
 
@@ -97,10 +105,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Error downloading/sending: {e}")
-        await status_msg.edit_text("حدث خطأ أثناء تحميل الفيديو. تأكد من أن الرابط يعمل وأن حجم الفيديو غير ضخم جداً.")
+        await status_msg.edit_text("حدث خطأ أثناء تحميل الفيديو. تأكد من صحة الرابط أو حاول مرة أخرى لاحقاً.")
 
     finally:
-        # تنظيف الملفات بعد إرسالها لتوفير المساحة في Render
+        # تنظيف الملفات المؤقتة لتوفير المساحة في Render
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
